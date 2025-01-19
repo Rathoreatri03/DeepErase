@@ -1,1 +1,1 @@
-assets/models/openlogo.pt filter=lfs diff=lfs merge=lfs -text
+model/openlogo.pt filter=lfs diff=lfs merge=lfs -text

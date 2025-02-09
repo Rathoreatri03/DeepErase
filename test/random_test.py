@@ -14,7 +14,7 @@ if os.path.exists(output_dir):
 os.makedirs(output_dir)
 
 # Load model
-model_path = r"E:\Stream_Censor\StreamClear\model\openlogo.pt"
+model_path = r"/StreamClear/assets/datasets/openlogo.pt"
 model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path)
 
 # Set model parameters

@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 # Load YOLOv5 Model
-model_path = r"E:\Stream_Censor\StreamClear\model\openlogo.pt"
+model_path = r"E:\Stream_Censor\DeepErase\model\openlogo.pt"
 model = torch.hub.load("ultralytics/yolov5", "custom", path=model_path, force_reload=True)
 
 # Set Model Parameters
@@ -13,9 +13,9 @@ model.classes = None  # Detect all classes
 model.eval()
 
 # Input and Output Video Paths
-video_path = r"E:\Stream_Censor\StreamClear\assets\github\Garv_removal\video.mp4"
-output_path = r"E:\Stream_Censor\StreamClear\assets\github\Garv_removal\remove-photo-object\assets\output_video.mp4"
-detections_path = r"E:\Stream_Censor\StreamClear\assets\github\Garv_removal\remove-photo-object\assets\detections.txt"
+video_path = r"E:\Stream_Censor\DeepErase\assets\datasets\puma.mp4"
+output_path = r"/DeepErase/results\output_video.mp4"
+detections_path = r"/DeepErase/results\detections.txt"
 
 # Open Video File
 cap = cv2.VideoCapture(video_path)
@@ -28,8 +28,8 @@ fps = int(cap.get(cv2.CAP_PROP_FPS))  # Frames per second
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-# Define Video Writer
-fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Alternative: 'MJPG', 'mp4v'
+# Define Video Writer (use 'mp4v' codec for better compatibility)
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Alternative: 'MJPG'
 out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
 # Open a single text file for storing detections
@@ -51,7 +51,7 @@ with open(detections_path, "w") as file:
 
         # Perform Object Detection
         results = model(rgb_frame)
-        detections = results.pandas().xyxy[0]  # Convert to pandas DataFrame
+        detections = results.pandas().xyxy[0]  # Get detections for the frame
 
         # Draw Bounding Boxes and Save Detections
         for _, detection in detections.iterrows():
@@ -72,7 +72,9 @@ with open(detections_path, "w") as file:
 
 cap.release()
 out.release()
-cv2.destroyAllWindows()
+
+# Comment or remove the next line if not using GUI
+# cv2.destroyAllWindows()
 
 print(f"✅ Detection complete. Processed video saved as: {output_path}")
 print(f"✅ Detections saved in: {detections_path}")

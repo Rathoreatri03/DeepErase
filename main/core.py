@@ -16,7 +16,7 @@ try:
 except:
     pass
 
-from src.helper import (
+from helper import (
     download_model,
     load_img,
     norm_img,
@@ -50,7 +50,7 @@ USE_FORWARD_ENERGY = True                 # if True, use forward energy algorith
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
-model_path = "./assets/big-lama.pt"
+model_path = r"E:\Stream_Censor\DeepErase\model\big-lama.pt"
 model = torch.jit.load(model_path, map_location=device)
 model = model.to(device)
 model.eval()

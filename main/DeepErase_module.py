@@ -60,7 +60,7 @@ def apply_inpainting(image, bounding_boxes):
 
 
 def process_video(video_path, detections):
-    """Processes video frame by frame."""
+    """Processes video frame by frame and returns inpainted frames with frame count."""
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -76,11 +76,9 @@ def process_video(video_path, detections):
         if frame_id in detections:
             print(f"Processing frame {frame_id}")
             inpainted_frame = apply_inpainting(frame, detections[frame_id])
-            frame_output_path = os.path.join(frames_dir, f"frame_{frame_id:04d}.png")
-            cv2.imwrite(frame_output_path, inpainted_frame)
+            yield frame_id, inpainted_frame
         else:
-            frame_output_path = os.path.join(frames_dir, f"frame_{frame_id:04d}.png")
-            cv2.imwrite(frame_output_path, frame)
+            yield frame_id, frame
             print(f"Skipping frame {frame_id}")
 
     cap.release()
@@ -104,8 +102,11 @@ def reconstruct_video(frames_dir, output_video_path, fps, frame_size):
 # Load detections
 detections = load_detections(detections_path)
 
-# Process video frames
-process_video(video_path, detections)
+# Process video frames and get inpainted frames
+for frame_id, inpainted_frame in process_video(video_path, detections):
+    # Save inpainted frame with frame count
+    frame_output_path = os.path.join(frames_dir, f"frame_{frame_id:04d}.png")
+    cv2.imwrite(frame_output_path, inpainted_frame)
 
 # Reconstruct the video
 cap = cv2.VideoCapture(video_path)

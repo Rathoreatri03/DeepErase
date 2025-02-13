@@ -1,56 +1,155 @@
 import torch
-from PIL import Image
 import cv2
+import os
 import numpy as np
-from pathlib import Path
+from diffusers import StableDiffusionInpaintPipeline
+from PIL import Image, ImageDraw
+from tqdm import tqdm
 
-# # Load class names
 
-# with open('openlogo_classes.txt', 'r') as f:
-#     class_names = [line.strip() for line in f.readlines()]
+def parse_yolo_bbox(line, img_width, img_height):
+    """
+    Parse YOLO formatted bounding box (normalized) and convert to pixel coordinates.
+    """
+    values = line.strip().split()
 
-# Load model
-model_path = "openlogo.pt"
-model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path)
+    frame, _, x_center, y_center, bbox_width, bbox_height = map(float, values)
 
-# Set model parameters
-model.conf = 0.25  # Confidence threshold
-model.iou = 0.45   # NMS IOU threshold
-model.classes = None  # All classes
-model.eval()
+    # Convert from normalized to pixel coordinates
+    x1 = int((x_center - bbox_width / 2) * img_width)
+    y1 = int((y_center - bbox_height / 2) * img_height)
+    x2 = int((x_center + bbox_width / 2) * img_width)
+    y2 = int((y_center + bbox_height / 2) * img_height)
 
-# Load and process image
-image_path = "1.jpg"
-# Read image with OpenCV
-original_image = cv2.imread(image_path)
-image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-image_pil = Image.fromarray(image)
+    return x1, y1, x2, y2, frame
+def video_analysis(video_path, bbox_file, output_frame_path, output_video_path, pipe):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print("Error: Could not open video file.")
+        return
 
-# Perform detection
-results = model(image_pil)
+    # Get video properties
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-# Process results
-detections = results.pandas().xyxy[0]  # Get detections as pandas dataframe
+    # Create video writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
 
-# Print results and draw boxes
-for idx, detection in detections.iterrows():
-    print(f"Detected {detection['name']} with confidence: {detection['confidence']:.2f}")
-    print(f"Bounding box: ({detection['xmin']:.0f}, {detection['ymin']:.0f}), ({detection['xmax']:.0f}, {detection['ymax']:.0f})")
-    print("-----------------------")
-    
-    # Draw rectangle on image
-    start_point = (int(detection['xmin']), int(detection['ymin']))
-    end_point = (int(detection['xmax']), int(detection['ymax']))
-    color = (0, 255, 0)  # Green color in BGR
-    thickness = 2
-    original_image = cv2.rectangle(original_image, start_point, end_point, color, thickness)
-    
-    # Add label
-    label = f"{detection['name']} {detection['confidence']:.2f}"
-    cv2.putText(original_image, label, (start_point[0], start_point[1]-10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, thickness)
+    # Read bbox data
+    bbox_frames = {}
+    if os.path.exists(bbox_file):
+        with open(bbox_file, "r") as f:
+            for line in f:
+                frame_num = int(line.split()[0])
+                if frame_num in bbox_frames:
+                    bbox_frames[frame_num].append(line)
+                else:
+                    bbox_frames[frame_num] = [line]
 
-# Save the annotated image
-cv2.imwrite('output.jpg', original_image)
+    frame_count = 0
+    progress_bar = tqdm(total=total_frames, desc="Processing frames")
 
-print("Detection complete. Results saved to 'output.jpg'")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        output_frame = frame.copy()  # Default to original frame
+
+        # If this frame has bounding boxes, process it
+        if frame_count in bbox_frames:
+            # Convert frame to RGB for processing
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Process frame with all its bounding boxes
+            for bbox_line in bbox_frames[frame_count]:
+                result = process_image(image, bbox_line, pipe)
+                if result is not None:
+                    # Convert PIL Image back to OpenCV format
+                    output_frame = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+
+        # Save individual frame
+        frame_filename = os.path.join(output_frame_path, f"frame_{frame_count:06d}.png")
+        cv2.imwrite(frame_filename, output_frame)
+
+        # Write frame to video
+        video_writer.write(output_frame)
+
+        frame_count += 1
+        progress_bar.update(1)
+
+    # Cleanup
+    progress_bar.close()
+    cap.release()
+    video_writer.release()
+    torch.cuda.empty_cache()
+
+
+def process_image(frame, line, pipe):
+    """
+    Process a single frame with Stable Diffusion inpainting.
+    Returns PIL Image.
+    """
+    # Convert numpy array to PIL Image
+    image = Image.fromarray(frame)
+    img_width, img_height = image.size
+
+    # Create mask
+    mask = Image.new("L", (img_width, img_height), 0)
+    draw = ImageDraw.Draw(mask)
+
+    # Parse bbox and draw on mask
+    bbox = parse_yolo_bbox(line, img_width, img_height)
+    if bbox:
+        x1, y1, x2, y2, _ = bbox
+        draw.rectangle([x1, y1, x2, y2], fill=255)
+
+    # Resize for Stable Diffusion
+    image_resized = image.resize((512, 512))
+    mask_resized = mask.resize((512, 512))
+
+    # Perform inpainting
+    result = pipe(
+        prompt="natural background scene, high quality, photorealistic",
+        negative_prompt="text, watermark, logo, artificial, distorted",
+        image=image_resized,
+        mask_image=mask_resized,
+        num_inference_steps=30,
+        guidance_scale=7.5
+    ).images[0]
+
+    # Resize back to original size
+    return result.resize(image.size)
+
+
+def main():
+    video_path = r"E:\Stream_Censor\StreamClear\assets\datasets\videoplayback.mp4"
+    bbox_file = r"E:\Stream_Censor\StreamClear\test\detection_results\output_labels.txt"
+    output_frame_path = r"E:\Stream_Censor\StreamClear\test\detection_results\frames"
+    output_video_path = r"E:\Stream_Censor\StreamClear\test\detection_results\output_video.mp4"
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_frame_path, exist_ok=True)
+
+    # Load Stable Diffusion Model
+    pipe = StableDiffusionInpaintPipeline.from_pretrained(
+        "stabilityai/stable-diffusion-2-inpainting",
+        torch_dtype=torch.float16,
+        variant="fp16"
+    ).to("cuda")
+
+    try:
+        print("Starting video processing...")
+        video_analysis(video_path, bbox_file, output_frame_path, output_video_path, pipe)
+        print(f"Processing complete. Output video saved to: {output_video_path}")
+        print(f"Individual frames saved to: {output_frame_path}")
+
+    except Exception as e:
+        print(f"Error during processing: {str(e)}")
+
+
+if __name__ == "__main__":
+    main()

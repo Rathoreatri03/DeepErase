@@ -4,7 +4,6 @@ import sys
 from urllib.parse import urlparse
 import cv2
 import numpy as np
-import torch
 from torch.hub import download_url_to_file, get_dir
 
 LAMA_MODEL_URL = os.environ.get(

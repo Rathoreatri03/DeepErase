@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 from PIL import Image
-from src.core import process_inpaint
+from DeepErase.main.core import process_inpaint
 
 # Paths
 video_path = r"E:\Stream_Censor\StreamClear\assets\github\Garv_removal\video.mp4"
